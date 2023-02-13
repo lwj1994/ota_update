@@ -156,13 +156,16 @@ public class OtaUpdatePlugin implements FlutterPlugin, ActivityAware, EventChann
             androidProviderAuthority = context.getPackageName() + "." + "ota_update_provider";
         }
 
-        if (PackageManager.PERMISSION_GRANTED == ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
+        // todo  handle requestLegacyExternalStorage
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
             executeDownload();
         } else {
-            String[] permissions = {
-                    Manifest.permission.WRITE_EXTERNAL_STORAGE
-            };
-            ActivityCompat.requestPermissions(activity, permissions, 0);
+            if (PackageManager.PERMISSION_GRANTED == ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
+                executeDownload();
+            } else {
+                String[] permissions = {Manifest.permission.WRITE_EXTERNAL_STORAGE};
+                ActivityCompat.requestPermissions(activity, permissions, 0);
+            }
         }
     }
 
@@ -207,15 +210,14 @@ public class OtaUpdatePlugin implements FlutterPlugin, ActivityAware, EventChann
                 if (!file.delete()) {
                     Log.e(TAG, "WARNING: unable to delete old apk file before starting OTA");
                 }
-            } else if (!file.getParentFile().exists()){
+            } else if (!file.getParentFile().exists()) {
                 if (!file.getParentFile().mkdirs()) {
                     reportError(OtaStatus.INTERNAL_ERROR, "unable to create ota_update folder in internal storage", null);
                 }
             }
 
             Log.d(TAG, "DOWNLOAD STARTING");
-            Request.Builder request = new Request.Builder()
-                    .url(downloadUrl);
+            Request.Builder request = new Request.Builder().url(downloadUrl);
             if (headers != null) {
                 Iterator<String> jsonKeys = headers.keys();
                 while (jsonKeys.hasNext()) {
@@ -240,7 +242,7 @@ public class OtaUpdatePlugin implements FlutterPlugin, ActivityAware, EventChann
                         BufferedSink sink = Okio.buffer(Okio.sink(file));
                         sink.writeAll(response.body().source());
                         sink.close();
-                    } catch (RuntimeException ex){
+                    } catch (RuntimeException ex) {
                         reportError(OtaStatus.DOWNLOAD_ERROR, ex.getMessage(), ex);
                         return;
                     }
@@ -254,7 +256,7 @@ public class OtaUpdatePlugin implements FlutterPlugin, ActivityAware, EventChann
 
     /**
      * Download has been completed
-     *
+     * <p>
      * 1. Check if file exists
      * 2. If checksum was provided, compute downloaded file checksum and compare with provided value
      * 3. If checks above pass, trigger installation
@@ -297,7 +299,7 @@ public class OtaUpdatePlugin implements FlutterPlugin, ActivityAware, EventChann
 
     /**
      * Execute installation
-     *
+     * <p>
      * For android API level >= 24 start intent for ACTION_INSTALL_PACKAGE (native installer)
      * For android API level < 24 start intent ACTION_VIEW (open file, android should prompt for installation)
      *
@@ -311,8 +313,7 @@ public class OtaUpdatePlugin implements FlutterPlugin, ActivityAware, EventChann
             Uri apkUri = FileProvider.getUriForFile(context, androidProviderAuthority, downloadedFile);
             intent = new Intent(Intent.ACTION_INSTALL_PACKAGE);
             intent.setData(apkUri);
-            intent.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            intent.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         } else {
             intent = new Intent(Intent.ACTION_VIEW);
             intent.setDataAndType(fileUri, "application/vnd.android.package-archive");
@@ -381,18 +382,14 @@ public class OtaUpdatePlugin implements FlutterPlugin, ActivityAware, EventChann
         final EventChannel progressChannel = new EventChannel(messanger, "sk.fourq.ota_update");
         progressChannel.setStreamHandler(this);
 
-        client = new OkHttpClient.Builder()
-                .addNetworkInterceptor(new Interceptor() {
-                    @NotNull
-                    @Override
-                    public Response intercept(@NotNull Chain chain) throws IOException {
-                        Response originalResponse = chain.proceed(chain.request());
-                        return originalResponse.newBuilder()
-                                .body(new ProgressResponseBody(originalResponse.body(), OtaUpdatePlugin.this))
-                                .build();
-                    }
-                })
-                .build();
+        client = new OkHttpClient.Builder().addNetworkInterceptor(new Interceptor() {
+            @NotNull
+            @Override
+            public Response intercept(@NotNull Chain chain) throws IOException {
+                Response originalResponse = chain.proceed(chain.request());
+                return originalResponse.newBuilder().body(new ProgressResponseBody(originalResponse.body(), OtaUpdatePlugin.this)).build();
+            }
+        }).build();
     }
 
     @Override
@@ -420,12 +417,6 @@ public class OtaUpdatePlugin implements FlutterPlugin, ActivityAware, EventChann
      * All statuses reported by the plugin
      */
     private enum OtaStatus {
-        DOWNLOADING,
-        INSTALLING,
-        ALREADY_RUNNING_ERROR,
-        PERMISSION_NOT_GRANTED_ERROR,
-        INTERNAL_ERROR,
-        DOWNLOAD_ERROR,
-        CHECKSUM_ERROR,
+        DOWNLOADING, INSTALLING, ALREADY_RUNNING_ERROR, PERMISSION_NOT_GRANTED_ERROR, INTERNAL_ERROR, DOWNLOAD_ERROR, CHECKSUM_ERROR,
     }
 }
